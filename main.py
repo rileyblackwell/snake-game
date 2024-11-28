@@ -1,5 +1,7 @@
 import pygame
 import random
+import sqlite3
+from datetime import datetime
 
 # Initialize Pygame
 pygame.init()
@@ -40,7 +42,36 @@ class Snake:
                 head[0] < 0 or head[0] >= GRID_COUNT or 
                 head[1] < 0 or head[1] >= GRID_COUNT)
 
+def init_database():
+    conn = sqlite3.connect('snake_scores.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS high_scores
+                 (score INTEGER, date TEXT)''')
+    conn.commit()
+    conn.close()
+
+def save_score(score):
+    conn = sqlite3.connect('snake_scores.db')
+    c = conn.cursor()
+    c.execute("INSERT INTO high_scores VALUES (?, ?)", (score, datetime.now().strftime("%Y-%m-%d %H:%M")))
+    c.execute("SELECT score FROM high_scores ORDER BY score DESC LIMIT 5")
+    top_scores = c.fetchall()
+    if len(top_scores) > 5:
+        min_high_score = top_scores[4][0]
+        c.execute("DELETE FROM high_scores WHERE score < ?", (min_high_score,))
+    conn.commit()
+    conn.close()
+
+def get_high_scores():
+    conn = sqlite3.connect('snake_scores.db')
+    c = conn.cursor()
+    c.execute("SELECT score, date FROM high_scores ORDER BY score DESC LIMIT 5")
+    scores = c.fetchall()
+    conn.close()
+    return scores
+
 def main():
+    init_database()
     screen = pygame.display.set_mode((WINDOW_SIZE, WINDOW_SIZE))
     pygame.display.set_caption('Snake Game')
     clock = pygame.time.Clock()
@@ -65,6 +96,8 @@ def main():
                     food = (random.randint(0, GRID_COUNT-1), random.randint(0, GRID_COUNT-1))
                     score = 0
                     game_over = False
+                    if hasattr(main, 'score_saved'):
+                        delattr(main, 'score_saved')
                 if not paused and not game_over:
                     if event.key == pygame.K_UP and snake.direction != [0, 1]:
                         snake.direction = [0, -1]
@@ -106,14 +139,28 @@ def main():
         screen.blit(score_text, (10, 10))
 
         if game_over:
+            # Save score when game first ends
+            if score > 0 and not hasattr(main, 'score_saved'):
+                save_score(score)
+                main.score_saved = True
+
             game_over_text = GAME_OVER_FONT.render('GAME OVER!', True, WHITE)
             restart_text = FONT.render('Press R to Restart', True, WHITE)
             screen.blit(game_over_text, 
                        (WINDOW_SIZE//2 - game_over_text.get_width()//2, 
-                        WINDOW_SIZE//2 - 50))
+                        WINDOW_SIZE//2 - 100))
             screen.blit(restart_text,
                        (WINDOW_SIZE//2 - restart_text.get_width()//2,
-                        WINDOW_SIZE//2 + 10))
+                        WINDOW_SIZE//2 - 50))
+            
+            # Display high scores
+            high_scores = get_high_scores()
+            title_text = FONT.render('High Scores:', True, WHITE)
+            screen.blit(title_text, (WINDOW_SIZE//2 - 60, WINDOW_SIZE//2))
+            
+            for i, (high_score, date) in enumerate(high_scores):
+                score_text = FONT.render(f"{high_score} - {date}", True, WHITE)
+                screen.blit(score_text, (WINDOW_SIZE//2 - 100, WINDOW_SIZE//2 + 30 + i * 25))
 
         if paused:
             pause_text = GAME_OVER_FONT.render('PAUSED', True, WHITE)
